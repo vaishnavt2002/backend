@@ -2,11 +2,12 @@ from django.db import models
 from auth_app.models import User, JobSeeker, JobProvider
 from django.core.validators import FileExtensionValidator
 from django.core.exceptions import ValidationError
+from cloudinary.models import CloudinaryField
 
 class Community(models.Model):
     name = models.CharField(max_length=100, unique=True)
     description = models.TextField(blank=True, null=True)
-    cover_image = models.ImageField(upload_to='community_covers/', blank=True, null=True)
+    cover_image = CloudinaryField('image', folder='community_covers/', blank=True, null=True)
     category = models.CharField(max_length=50, blank=True, null=True)
     created_by = models.ForeignKey(User, on_delete=models.SET_NULL, null=True, related_name='created_communities')
     created_at = models.DateTimeField(auto_now_add=True)

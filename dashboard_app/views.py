@@ -478,9 +478,15 @@ class JobProviderStatsView(APIView):
             # Growth percentages
             # Calculate safely to avoid division by zero
             def calculate_growth(total, new):
-                if total - new == 0:
-                    return 100.0  # If all are new, growth is 100%
-                return round((new / (total - new)) * 100, 2) if total - new > 0 else 0
+                
+                previous = total - new
+                
+                if previous == 0:
+                    if new > 0:
+                        return 500.0 
+                    else:
+                        return 0.0  
+                return round((new / previous) * 100, 2)
                 
             job_post_growth = calculate_growth(total_job_posts, new_job_posts)
             application_growth = calculate_growth(total_applications, new_applications)
