@@ -138,5 +138,5 @@ class VerifyOTPSerializer(serializers.Serializer):
         user = User.objects.get(email=email)
         user.is_verified = True
         user.save()
-        cache.delete(f"verification_otp_{email}")  # Clear OTP
+        cache.delete(f"verification_otp_{email}") 
         return user
