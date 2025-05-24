@@ -1033,7 +1033,14 @@ class JobApplicationStatusUpdateView(APIView):
                 application.status = status_value
                 application.save()
                 
-                send_application_status_notification(application)
+                # Send specific emails for SHORTLISTED and HIRED status
+                if status_value == 'SHORTLISTED':
+                    self.send_shortlisted_email(application)
+                elif status_value == 'HIRED':
+                    self.send_hired_email(application)
+                else:
+                    # For other status updates, use the generic notification
+                    send_application_status_notification(application)
 
                 serializer = JobApplicationDetailSerializer(application)
                 return Response(serializer.data)
@@ -1048,6 +1055,60 @@ class JobApplicationStatusUpdateView(APIView):
                 {"error": "Job provider profile not found."},
                 status=status.HTTP_404_NOT_FOUND
             )
+    
+    def send_shortlisted_email(self, application):
+        """Send email notification when application is shortlisted"""
+        job_seeker_name = application.job_seeker.user.get_full_name() or application.job_seeker.user.username
+        job_seeker_email = application.job_seeker.user.email
+        job_title = application.jobpost.title
+        company_name = application.jobpost.job_provider.company_name
+        
+        send_mail(
+            subject=f'Application Shortlisted: {job_title} at {company_name}',
+            message=f'''Dear {job_seeker_name},
+
+We are pleased to inform you that your application for the position of "{job_title}" at {company_name} has been shortlisted!
+
+Your application has impressed our hiring team, and you have moved to the next stage of our selection process. We will be in touch soon with further details about the next steps.
+
+We appreciate your interest in joining our team and look forward to the possibility of working with you.
+
+Best regards,
+{company_name} Hiring Team
+via Seekerspot
+            ''',
+            from_email=None,
+            recipient_list=[job_seeker_email],
+            fail_silently=True,
+        )
+    
+    def send_hired_email(self, application):
+        """Send congratulations email when application is hired"""
+        job_seeker_name = application.job_seeker.user.get_full_name() or application.job_seeker.user.username
+        job_seeker_email = application.job_seeker.user.email
+        job_title = application.jobpost.title
+        company_name = application.jobpost.job_provider.company_name
+        
+        send_mail(
+            subject=f'Congratulations! Job Offer: {job_title} at {company_name}',
+            message=f'''Dear {job_seeker_name},
+
+Congratulations! We are thrilled to inform you that you have been selected for the position of "{job_title}" at {company_name}.
+
+Your skills, experience, and enthusiasm have impressed our team, and we are excited to welcome you aboard. Our HR team will be contacting you soon with the formal offer letter and onboarding details.
+
+We look forward to having you as part of our team and are confident that you will make valuable contributions to our organization.
+
+Once again, congratulations on this achievement!
+
+Warm regards,
+{company_name} Hiring Team
+via Seekerspot
+            ''',
+            from_email=None,
+            recipient_list=[job_seeker_email],
+            fail_silently=True,
+        )
 class JobSeekerApplicationsView(APIView):
     permission_classes = [IsAuthenticated]
 

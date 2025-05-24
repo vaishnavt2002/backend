@@ -56,7 +56,7 @@ class AdminDashboardStatsView(APIView):
             # Calculate safely to avoid division by zero
             def calculate_growth(total, new):
                 if total - new == 0:
-                    return 100.0  # If all are new, growth is 100%
+                    return 100.0
                 return round((new / (total - new)) * 100, 2) if total - new > 0 else 0
                 
             user_growth = calculate_growth(total_users, new_users)
@@ -329,7 +329,6 @@ class AdminApplicationAnalyticsView(APIView):
     
     def get(self, request):
         try:
-            # Get time range from query params
             months = request.query_params.get('months', '12')
             
             try:
@@ -347,7 +346,6 @@ class AdminApplicationAnalyticsView(APIView):
                 
             time_threshold = datetime.now() - timedelta(days=30 * months_int)
             
-            # Get applications over time
             applications_over_time = JobApplication.objects.filter(
                 applied_at__gte=time_threshold
             ).annotate(
