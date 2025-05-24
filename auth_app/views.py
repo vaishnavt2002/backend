@@ -14,6 +14,10 @@ import random
 from django.middleware.csrf import get_token
 from rest_framework.parsers import MultiPartParser, FormParser
 from rest_framework.exceptions import AuthenticationFailed
+from google.oauth2 import id_token
+from google.auth.transport import requests
+from django.conf import settings
+from django.db import transaction
 import logging
 
 
@@ -308,3 +312,118 @@ class UserView(APIView):
                 pass
                 
         return Response(user_data)
+    
+class GoogleAuthView(APIView):
+    def post(self, request):
+        token = request.data.get('token')
+        user_type = request.data.get('user_type')
+        
+        # Only allow job_seeker user type for Google auth
+        if user_type != 'job_seeker':
+            return Response(
+                {'error': 'Google authentication is only available for job seekers'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        try:
+            # Verify the Google token
+            idinfo = id_token.verify_oauth2_token(
+                token, 
+                requests.Request(), 
+                settings.SOCIAL_AUTH_GOOGLE_OAUTH2_KEY
+            )
+            
+            # Get user email from token
+            email = idinfo.get('email')
+            if not email:
+                return Response(
+                    {'error': 'Email not provided by Google'},
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+                
+            # Check if the email is verified by Google
+            if not idinfo.get('email_verified'):
+                return Response(
+                    {'error': 'Google email is not verified'},
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+                
+            # Get user details
+            first_name = idinfo.get('given_name', '')
+            last_name = idinfo.get('family_name', '')
+            picture = idinfo.get('picture', None)
+            
+            # Try to find existing user or create new one
+            with transaction.atomic():
+                try:
+                    user = User.objects.get(email=email)
+                    
+                    # If user exists but is not a job seeker, return error
+                    if user.user_type != 'job_seeker':
+                        return Response(
+                            {'error': 'This email is already registered as a different user type'},
+                            status=status.HTTP_400_BAD_REQUEST
+                        )
+                        
+                except User.DoesNotExist:
+                    # Create new user as job seeker
+                    user = User.objects.create_user(
+                        email=email,
+                        username=email,  # Using email as username
+                        first_name=first_name,
+                        last_name=last_name,
+                        user_type='job_seeker',
+                        is_verified=True  # Auto-verify Google users
+                    )
+                    
+                    # Create JobSeeker profile
+                    JobSeeker.objects.create(
+                        user=user,
+                        expected_salary=0
+                    )
+                    
+                    # If Google provided a profile picture, save it
+                    if picture:
+                        # Here you would handle saving the picture URL to user.profile_picture
+                        # This depends on how you're handling image storage
+                        pass
+                
+            # Generate JWT tokens
+            refresh = RefreshToken.for_user(user)
+            access_token = str(refresh.access_token)
+            refresh_token = str(refresh)
+            
+            # Create response with tokens
+            response = Response({
+                'access': access_token,
+                'refresh': refresh_token,
+                'user': UserSerializer(user).data
+            })
+            
+            # Set cookies
+            response.set_cookie(
+                key='access_token',
+                value=access_token,
+                httponly=True,
+                secure=False,
+                samesite='Lax',
+                max_age=5 * 60
+            )
+            response.set_cookie(
+                key='refresh_token',
+                value=refresh_token,
+                httponly=True,
+                secure=False,
+                samesite='Lax',
+                max_age=24 * 60 * 60
+            )
+            
+            return response
+            
+        except ValueError as e:
+            # Invalid token
+            return Response({'error': f'Invalid token: {str(e)}'}, status=status.HTTP_401_UNAUTHORIZED)
+            
+        except Exception as e:
+            # Other errors
+            return Response({'error': f'Authentication failed: {str(e)}'}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)

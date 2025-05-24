@@ -56,6 +56,7 @@ INSTALLED_APPS = [
     'notification_app',
     'user_management_app',
     'dashboard_app',
+    'social_django',
     ]
 # Channels settings
 ASGI_APPLICATION = 'backend.asgi.application'
@@ -158,7 +159,9 @@ DATABASES = {
         'PORT': os.environ.get('DB_PORT', '5432'),
     }
 }
-
+SOCIAL_AUTH_GOOGLE_OAUTH2_KEY = os.environ.get('SOCIAL_AUTH_GOOGLE_OAUTH2_KEY')
+SOCIAL_AUTH_GOOGLE_OAUTH2_SECRET = os.environ.get('SOCIAL_AUTH_GOOGLE_OAUTH2_SECRET')
+SOCIAL_AUTH_GOOGLE_OAUTH2_SCOPE = ['email', 'profile']
 #media config
 # seekerspot/settings.py
 MEDIA_URL = '/media/'
