@@ -116,7 +116,6 @@ class AdminDashboardStatsView(APIView):
                 {'error': 'Server error occurred'},
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR
             )
-
 class UserGrowthView(APIView):
     """API view for user growth data over time"""
     permission_classes = [IsAuthenticated, IsAdminUser]
@@ -481,7 +480,7 @@ class JobProviderStatsView(APIView):
                 
                 if previous == 0:
                     if new > 0:
-                        return 500.0 
+                        return 100.0 
                     else:
                         return 0.0  
                 return round((new / previous) * 100, 2)

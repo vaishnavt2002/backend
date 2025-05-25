@@ -3,6 +3,7 @@ from auth_app.models import User, JobSeeker, JobProvider
 from django.core.validators import FileExtensionValidator
 from django.core.exceptions import ValidationError
 from cloudinary.models import CloudinaryField
+from .storage import CommunityAttachmentStorage
 
 class Community(models.Model):
     name = models.CharField(max_length=100, unique=True)
@@ -50,10 +51,11 @@ class CommunityMessage(models.Model):
     content = models.TextField(blank=True, null=True)
     attachment = models.FileField(
         upload_to='community_attachments/',
+        storage=CommunityAttachmentStorage(), 
         blank=True,
         null=True,
         validators=[FileExtensionValidator(allowed_extensions=['jpg', 'jpeg', 'png', 'pdf', 'doc', 'docx'])]
-    )  
+    )
     created_at = models.DateTimeField(auto_now_add=True)
 
     def __str__(self):
