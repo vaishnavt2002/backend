@@ -387,7 +387,8 @@ class GoogleAuthView(APIView):
                         # Here you would handle saving the picture URL to user.profile_picture
                         # This depends on how you're handling image storage
                         pass
-                
+            
+            login(request, user)
             # Generate JWT tokens
             refresh = RefreshToken.for_user(user)
             access_token = str(refresh.access_token)
