@@ -976,8 +976,9 @@ class JobPostDetailForApplicantsView(APIView):
             )
 
 
-class JobPostApplicantsView(APIView):
 
+
+class JobPostApplicantsView(APIView):
     permission_classes = [IsAuthenticated]
     
     def get(self, request, pk):
@@ -991,7 +992,12 @@ class JobPostApplicantsView(APIView):
                 is_deleted=False
             )
             
-            applications = JobApplication.objects.filter(jobpost=job_post)
+            # Simple query without problematic prefetch_related
+            applications = JobApplication.objects.filter(jobpost=job_post).select_related(
+                'job_seeker__user'
+            ).prefetch_related(
+                'question_answers__question'
+            )
             
             serializer = JobApplicationDetailSerializer(applications, many=True)
             return Response(serializer.data)
