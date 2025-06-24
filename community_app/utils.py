@@ -1,8 +1,4 @@
 def get_attachment_type(attachment):
-    """
-    Determine the file type of an attachment based on its extension.
-    Returns None if no attachment, or a string like 'pdf', 'image', 'document', or 'unknown'.
-    """
     if not attachment:
         return None
         

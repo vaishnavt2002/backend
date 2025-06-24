@@ -61,7 +61,6 @@ class JobPostSerializer(serializers.ModelSerializer):
         requirements = validated_data.pop('requirements', [])
         responsibilities = validated_data.pop('responsibilities', [])
         skill_ids = validated_data.pop('skill_ids', [])
-
         questions_data = validated_data.pop('questions_data', [])
 
         validated_data['requirements'] = '\n'.join(requirements)
@@ -84,7 +83,6 @@ class JobPostSerializer(serializers.ModelSerializer):
         requirements = validated_data.pop('requirements', None)
         responsibilities = validated_data.pop('responsibilities', None)
         skill_ids = validated_data.pop('skill_ids', None)
-
         questions_data = validated_data.pop('questions_data', None)
 
         if requirements is not None:
@@ -94,10 +92,7 @@ class JobPostSerializer(serializers.ModelSerializer):
         if skill_ids is not None:
             instance.skills.set(skill_ids)
         if questions_data is not None:
-            # Delete existing questions
             instance.questions.all().delete()
-            
-            # Create new questions
             for question_data in questions_data:
                 JobQuestion.objects.create(
                     job_post=instance,
@@ -105,7 +100,6 @@ class JobPostSerializer(serializers.ModelSerializer):
                     question_type=question_data.get('question_type', 'DESCRIPTIVE')
                 )
         return super().update(instance, validated_data)
-
 class PublicJobPostSerializer(serializers.ModelSerializer):
     job_provider = serializers.SerializerMethodField()
     requirements_display = serializers.SerializerMethodField()

@@ -3,7 +3,6 @@ from django.conf import settings
 import os
 
 class CommunityAttachmentStorage(FileSystemStorage):
-    """Custom file system storage for community attachments"""
     
     def __init__(self, *args, **kwargs):
         location = getattr(settings, 'MEDIA_ROOT', None)
@@ -14,7 +13,6 @@ class CommunityAttachmentStorage(FileSystemStorage):
         """
         Return a filename that's free on the target storage system.
         """
-        # Get rid of special characters and spaces
         name = self._normalize_name(name)
         return super().get_available_name(name, max_length)
     
@@ -25,13 +23,10 @@ class CommunityAttachmentStorage(FileSystemStorage):
         import unicodedata
         import re
         
-        # Get only the filename, not the path
         name = os.path.basename(name)
         
-        # Replace spaces with underscores
         name = name.replace(' ', '_')
         
-        # Remove special characters
         name = unicodedata.normalize('NFKD', name).encode('ascii', 'ignore').decode('ascii')
         name = re.sub(r'[^\w\s.-]', '', name)
         

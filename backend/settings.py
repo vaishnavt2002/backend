@@ -163,7 +163,6 @@ SOCIAL_AUTH_GOOGLE_OAUTH2_KEY = os.environ.get('SOCIAL_AUTH_GOOGLE_OAUTH2_KEY')
 SOCIAL_AUTH_GOOGLE_OAUTH2_SECRET = os.environ.get('SOCIAL_AUTH_GOOGLE_OAUTH2_SECRET')
 SOCIAL_AUTH_GOOGLE_OAUTH2_SCOPE = ['email', 'profile']
 #media config
-# seekerspot/settings.py
 MEDIA_URL = '/media/'
 MEDIA_ROOT = BASE_DIR / 'media'
 
@@ -260,7 +259,7 @@ LOGGING = {
             'formatter': 'verbose',
         },
         'console': {
-            'level': 'INFO',  # Show all logs >= INFO
+            'level': 'INFO', 
             'class': 'logging.StreamHandler',
             'formatter': 'verbose',
         },
@@ -277,14 +276,14 @@ LOGGING = {
             'propagate': False,
         },
         'django.db.backends': {
-            'handlers': ['console'],  # Use DEBUG here only if needed
+            'handlers': ['console'], 
             'level': 'INFO',
             'propagate': False,
         },
     },
     'root': {
         'handlers': ['file', 'console'],
-        'level': 'INFO',  # Ensures root logs go to console too
+        'level': 'INFO', 
     }
 }
 

@@ -21,6 +21,9 @@ from notification_app.utils import send_notification
 from notification_app.models import Notification
 from notification_app.utils import *
 from notification_app.utils import send_job_applied_notification
+import re
+from datetime import datetime
+from dateutil.parser import parse
 logger = logging.getLogger(__name__)
 
 
@@ -29,12 +32,10 @@ from django.conf import settings
 # Configure logger for this module
 logger = logging.getLogger(__name__)
 
-
 class JobPostView(APIView):
     permission_classes = [IsAuthenticated]
     parser_classes = [MultiPartParser, FormParser, JSONParser]
     
-    # Hard-coded capital choices from model
     VALID_JOB_TYPES = ['REMOTE', 'HYBRID', 'ONSITE']
     VALID_EMPLOYMENT_TYPES = ['FULL_TIME', 'PART_TIME', 'INTERNSHIP', 'TRAINEE', 'CONTRACT']
     VALID_DOMAINS = ['ACCOUNTING', 'IT', 'MANAGEMENT', 'MARKETING', 'ENGINEERING', 'HEALTHCARE', 'EDUCATION', 'OTHER']
@@ -45,15 +46,25 @@ class JobPostView(APIView):
         """Sanitize text input to prevent XSS attacks"""
         if text is None:
             return ""
-        # Clean the text with bleach to remove potentially harmful HTML
         cleaned_text = bleach.clean(str(text).strip(), strip=True)
         if max_length and len(cleaned_text) > max_length:
             cleaned_text = cleaned_text[:max_length]
         return cleaned_text
     
+    def validate_text_start(self, text):
+        """Validate that text starts with letter or number"""
+        if not text or not re.match(r'^[a-zA-Z0-9]', text):
+            return False
+        return True
+    
+    def validate_location_chars(self, text):
+        """Validate that location contains only allowed characters"""
+        if not text or not re.match(r'^[a-zA-Z0-9][a-zA-Z0-9\s,\.\-\'\/]*$', text):
+            return False
+        return True
+    
     def get(self, request):
         try:
-            # Validate pagination parameters
             try:
                 page = request.query_params.get('page', '1')
                 if not page.isdigit() or int(page) < 1:
@@ -76,13 +87,9 @@ class JobPostView(APIView):
                     status=status.HTTP_400_BAD_REQUEST
                 )
             
-            # Get and sanitize search parameter
             search = self.sanitize_text(request.query_params.get('search', ''), max_length=100)
-            
-            # Initialize filter parameters
             filter_params = {}
             
-            # Job type filter - validate against hard-coded values
             job_type = request.query_params.get('job_type', '').upper()
             if job_type and job_type in self.VALID_JOB_TYPES:
                 filter_params['job_type'] = job_type
@@ -92,7 +99,6 @@ class JobPostView(APIView):
                     status=status.HTTP_400_BAD_REQUEST
                 )
                 
-            # Employment type filter
             employment_type = request.query_params.get('employment_type', '').upper()
             if employment_type and employment_type in self.VALID_EMPLOYMENT_TYPES:
                 filter_params['employment_type'] = employment_type
@@ -102,7 +108,6 @@ class JobPostView(APIView):
                     status=status.HTTP_400_BAD_REQUEST
                 )
                 
-            # Status filter
             status_param = request.query_params.get('status', '').upper()
             if status_param and status_param in self.VALID_STATUSES:
                 filter_params['status'] = status_param
@@ -112,7 +117,6 @@ class JobPostView(APIView):
                     status=status.HTTP_400_BAD_REQUEST
                 )
                 
-            # Domain filter
             domain = request.query_params.get('domain', '').upper()
             if domain and domain in self.VALID_DOMAINS:
                 filter_params['domain'] = domain
@@ -122,7 +126,6 @@ class JobPostView(APIView):
                     status=status.HTTP_400_BAD_REQUEST
                 )
                 
-            # Experience level filter
             try:
                 min_experience = request.query_params.get('min_experience', '')
                 if min_experience:
@@ -155,7 +158,6 @@ class JobPostView(APIView):
                     status=status.HTTP_400_BAD_REQUEST
                 )
             
-            # Validate sort parameter
             sort = request.query_params.get('sort', '-created_at')
             if sort not in self.VALID_SORTS:
                 return Response(
@@ -163,7 +165,6 @@ class JobPostView(APIView):
                     status=status.HTTP_400_BAD_REQUEST
                 )
             
-            # Check job provider profile
             try:
                 job_provider = request.user.job_provider_profile
             except AttributeError:
@@ -172,14 +173,12 @@ class JobPostView(APIView):
                     status=status.HTTP_403_FORBIDDEN
                 )
             
-            # Build query with validated parameters
             job_posts = JobPost.objects.filter(
                 job_provider=job_provider,
                 is_deleted=False,
                 **filter_params
             )
             
-            # Apply search filter if provided
             if search:
                 job_posts = job_posts.filter(
                     Q(title__icontains=search) |
@@ -187,10 +186,8 @@ class JobPostView(APIView):
                     Q(location__icontains=search)
                 )
             
-            # Apply sort
             job_posts = job_posts.order_by(sort)
             
-            # Pagination
             paginator = Paginator(job_posts, page_size)
             try:
                 paginated_jobs = paginator.page(page)
@@ -200,7 +197,6 @@ class JobPostView(APIView):
                     status=status.HTTP_404_NOT_FOUND
                 )
             
-            # Serialize and return response
             serializer = JobPostSerializer(paginated_jobs, many=True)
             return Response({
                 'results': serializer.data,
@@ -217,226 +213,123 @@ class JobPostView(APIView):
             )
     
     def post(self, request):
+        logger.info(f"JobPostView.post - User {request.user.id} creating job post.")
         try:
-            # Check job provider profile
             try:
                 job_provider = request.user.job_provider_profile
             except AttributeError:
-                return Response(
-                    {'error': 'User is not associated with a job provider profile'},
-                    status=status.HTTP_403_FORBIDDEN
-                )
-            
+                return Response({'error': 'User is not associated with a job provider profile'}, status=status.HTTP_403_FORBIDDEN)
+
             data = request.data.copy()
-            
-            # Validate choice fields
-            # Job type
+
+            # Validate title
+            title = self.sanitize_text(data.get('title', ''), 255)
+            if not title or len(title) <= 4 or not self.validate_text_start(title):
+                return Response({'error': 'Invalid title'}, status=status.HTTP_400_BAD_REQUEST)
+            data['title'] = title
+
+            # Validate location
+            location = self.sanitize_text(data.get('location', ''), 255)
+            if not location or not self.validate_location_chars(location):
+                return Response({'error': 'Invalid location'}, status=status.HTTP_400_BAD_REQUEST)
+            data['location'] = location
+
+            # Validate job_type
             job_type = data.get('job_type', '').upper()
-            if not job_type:
-                return Response(
-                    {'error': 'job_type is required'},
-                    status=status.HTTP_400_BAD_REQUEST
-                )
             if job_type not in self.VALID_JOB_TYPES:
-                return Response(
-                    {'error': f"Invalid job_type. Must be one of {self.VALID_JOB_TYPES}"},
-                    status=status.HTTP_400_BAD_REQUEST
-                )
+                return Response({'error': f"Invalid job_type. Must be one of {self.VALID_JOB_TYPES}"}, status=status.HTTP_400_BAD_REQUEST)
             data['job_type'] = job_type
-            
-            # Employment type
+
+            # Validate employment_type
             employment_type = data.get('employment_type', '').upper()
-            if not employment_type:
-                return Response(
-                    {'error': 'employment_type is required'},
-                    status=status.HTTP_400_BAD_REQUEST
-                )
             if employment_type not in self.VALID_EMPLOYMENT_TYPES:
-                return Response(
-                    {'error': f"Invalid employment_type. Must be one of {self.VALID_EMPLOYMENT_TYPES}"},
-                    status=status.HTTP_400_BAD_REQUEST
-                )
+                return Response({'error': f"Invalid employment_type. Must be one of {self.VALID_EMPLOYMENT_TYPES}"}, status=status.HTTP_400_BAD_REQUEST)
             data['employment_type'] = employment_type
-            
-            # Domain
+
+            # Validate domain
             domain = data.get('domain', '').upper()
-            if not domain:
-                return Response(
-                    {'error': 'domain is required'},
-                    status=status.HTTP_400_BAD_REQUEST
-                )
             if domain not in self.VALID_DOMAINS:
-                return Response(
-                    {'error': f"Invalid domain. Must be one of {self.VALID_DOMAINS}"},
-                    status=status.HTTP_400_BAD_REQUEST
-                )
+                return Response({'error': f"Invalid domain. Must be one of {self.VALID_DOMAINS}"}, status=status.HTTP_400_BAD_REQUEST)
             data['domain'] = domain
-            
-            # Status (optional, has default)
+
+            # Validate status
             status_param = data.get('status', 'DRAFT').upper()
             if status_param not in self.VALID_STATUSES:
-                return Response(
-                    {'error': f"Invalid status. Must be one of {self.VALID_STATUSES}"},
-                    status=status.HTTP_400_BAD_REQUEST
-                )
+                return Response({'error': f"Invalid status. Must be one of {self.VALID_STATUSES}"}, status=status.HTTP_400_BAD_REQUEST)
             data['status'] = status_param
-            
-            # Numeric fields validation
-            # Experience level
+
+            # Experience
             try:
-                experience_level = data.get('experience_level')
-                if experience_level is None:
-                    return Response(
-                        {'error': 'experience_level is required'},
-                        status=status.HTTP_400_BAD_REQUEST
-                    )
-                experience_level = int(experience_level)
+                experience_level = int(data.get('experience_level', -1))
                 if experience_level < 0:
-                    return Response(
-                        {'error': 'experience_level cannot be negative'},
-                        status=status.HTTP_400_BAD_REQUEST
-                    )
+                    raise ValueError()
                 data['experience_level'] = experience_level
             except ValueError:
-                return Response(
-                    {'error': 'experience_level must be a number'},
-                    status=status.HTTP_400_BAD_REQUEST
-                )
-            
-            # Salary fields
+                return Response({'error': 'experience_level must be a non-negative number'}, status=status.HTTP_400_BAD_REQUEST)
+
+            # Salary
             try:
-                min_salary = data.get('min_salary')
-                if min_salary is None:
-                    return Response(
-                        {'error': 'min_salary is required'},
-                        status=status.HTTP_400_BAD_REQUEST
-                    )
-                min_salary = int(min_salary)
-                if min_salary < 0:
-                    return Response(
-                        {'error': 'min_salary cannot be negative'},
-                        status=status.HTTP_400_BAD_REQUEST
-                    )
+                min_salary = int(data.get('min_salary'))
+                max_salary = int(data.get('max_salary'))
+                if min_salary < 0 or max_salary < 0 or min_salary > max_salary:
+                    raise ValueError()
                 data['min_salary'] = min_salary
-            except ValueError:
-                return Response(
-                    {'error': 'min_salary must be a number'},
-                    status=status.HTTP_400_BAD_REQUEST
-                )
-                
-            try:
-                max_salary = data.get('max_salary')
-                if max_salary is None:
-                    return Response(
-                        {'error': 'max_salary is required'},
-                        status=status.HTTP_400_BAD_REQUEST
-                    )
-                max_salary = int(max_salary)
-                if max_salary < 0:
-                    return Response(
-                        {'error': 'max_salary cannot be negative'},
-                        status=status.HTTP_400_BAD_REQUEST
-                    )
                 data['max_salary'] = max_salary
-            except ValueError:
-                return Response(
-                    {'error': 'max_salary must be a number'},
-                    status=status.HTTP_400_BAD_REQUEST
-                )
-                
-            # Ensure max_salary is greater than or equal to min_salary
-            if min_salary > max_salary:
-                return Response(
-                    {'error': 'max_salary must be greater than or equal to min_salary'},
-                    status=status.HTTP_400_BAD_REQUEST
-                )
-            
-            # Validate application_deadline
-            application_deadline = data.get('application_deadline')
-            if not application_deadline:
-                return Response(
-                    {'error': 'application_deadline is required'},
-                    status=status.HTTP_400_BAD_REQUEST
-                )
-            
-            # Sanitize text fields (title, location, description)
-            for field in ['title', 'location', 'description']:
-                if not data.get(field):
-                    return Response(
-                        {'error': f'{field} is required'},
-                        status=status.HTTP_400_BAD_REQUEST
-                    )
-                
-                # Apply proper sanitization using the sanitize_text method
-                max_length = 255 if field in ['title', 'location'] else None
-                data[field] = self.sanitize_text(data[field], max_length=max_length)
-                
-                # Additional check after sanitization to ensure we still have content
-                if not data[field]:
-                    return Response(
-                        {'error': f'{field} cannot be empty after sanitization'},
-                        status=status.HTTP_400_BAD_REQUEST
-                    )
-            
-            # Handle requirements and responsibilities as lists
+            except (ValueError, TypeError):
+                return Response({'error': 'Invalid salary values'}, status=status.HTTP_400_BAD_REQUEST)
+
+            # Application Deadline (✅ Fixed Here)
+            try:
+                deadline_date = parse(data.get('application_deadline')).date()
+                if deadline_date < datetime.now().date():
+                    return Response({'error': 'application_deadline must be today or in the future'}, status=status.HTTP_400_BAD_REQUEST)
+            except (ValueError, TypeError):
+                return Response({'error': 'application_deadline must be a valid date'}, status=status.HTTP_400_BAD_REQUEST)
+
+            # Description
+            description = self.sanitize_text(data.get('description', ''))
+            if not description:
+                return Response({'error': 'description is required'}, status=status.HTTP_400_BAD_REQUEST)
+            data['description'] = description
+
+            # Requirements and Responsibilities
             for field in ['requirements', 'responsibilities']:
-                field_value = data.get(field)
-                if not field_value:
-                    return Response(
-                        {'error': f'{field} is required'},
-                        status=status.HTTP_400_BAD_REQUEST
-                    )
-                
-                # If the field is a string, convert it to a list
-                if isinstance(field_value, str):
-                    # Split by newlines or convert to a single-item list depending on format
-                    if '\n' in field_value:
-                        # Split by newlines and filter out empty lines
-                        items = [item.strip() for item in field_value.split('\n') if item.strip()]
-                        if not items:  # Ensure we have at least one item
-                            items = [field_value.strip()]
-                    else:
-                        items = [field_value.strip()]
-                elif isinstance(field_value, list):
-                    items = field_value
+                raw_items = data.get(field)
+                if not raw_items:
+                    return Response({'error': f'{field} is required'}, status=status.HTTP_400_BAD_REQUEST)
+
+                if isinstance(raw_items, str):
+                    items = [i.strip() for i in raw_items.split('\n') if i.strip()]
+                elif isinstance(raw_items, list):
+                    items = raw_items
                 else:
-                    return Response(
-                        {'error': f'{field} must be a string or a list'},
-                        status=status.HTTP_400_BAD_REQUEST
-                    )
-                    
-                # Sanitize each item in the list using the sanitize_text method
-                sanitized_items = []
+                    return Response({'error': f'{field} must be a string or list'}, status=status.HTTP_400_BAD_REQUEST)
+
+                cleaned_items = []
                 for item in items:
-                    # Apply proper sanitization with bleach
-                    sanitized_item = self.sanitize_text(item, max_length=1000)  # Set a reasonable max length
-                    if sanitized_item:
-                        sanitized_items.append(sanitized_item)
-                
-                if not sanitized_items:  # Ensure we have at least one item after sanitization
-                    return Response(
-                        {'error': f'{field} must contain at least one non-empty item after sanitization'},
-                        status=status.HTTP_400_BAD_REQUEST
-                    )
-                
-                data[field] = sanitized_items
-            
-            # Let the serializer handle remaining validation
+                    item_clean = self.sanitize_text(item, 1000)
+                    if not item_clean or len(item_clean) <= 3 or not self.validate_text_start(item_clean):
+                        return Response({'error': f'Invalid item in {field}'}, status=status.HTTP_400_BAD_REQUEST)
+                    cleaned_items.append(item_clean)
+
+                if not cleaned_items:
+                    return Response({'error': f'{field} cannot be empty'}, status=status.HTTP_400_BAD_REQUEST)
+
+                data[field] = cleaned_items
+
+            # Save Job Post
             serializer = JobPostSerializer(data=data, context={'request': request})
             if serializer.is_valid():
                 job_post = serializer.save(job_provider=job_provider)
-                logger.info(f"New job post created: ID {job_post.id} by provider {job_provider.id}")
+                logger.info(f"JobPostView.post - Job created successfully with ID {job_post.id}")
                 return Response(serializer.data, status=status.HTTP_201_CREATED)
-            
-            logger.warning(f"Validation error in JobPostView.post for user {request.user.id}: {serializer.errors}")
-            return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
-        
+            else:
+                return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
         except Exception as e:
-            logger.error(f"Unexpected error in JobPostView.post: {str(e)}", exc_info=True)
-            return Response(
-                {'error': 'Server error occurred'},
-                status=status.HTTP_500_INTERNAL_SERVER_ERROR
-            )
+            logger.error(f"JobPostView.post - Unexpected error: {e}", exc_info=True)
+            return Response({'error': 'Server error occurred'}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
 class JobPostDetailView(APIView):
     permission_classes = [IsAuthenticated, IsJobProvier]
     parser_classes = [MultiPartParser, FormParser, JSONParser]

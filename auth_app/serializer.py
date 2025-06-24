@@ -5,6 +5,7 @@ from django.core.cache import cache
 from django.utils import timezone
 from datetime import timedelta
 import random
+from django.core.validators import RegexValidator
 
 class UserSerializer(serializers.ModelSerializer):
     class Meta:
@@ -12,15 +13,22 @@ class UserSerializer(serializers.ModelSerializer):
         fields = ['id', 'email', 'user_type', 'profile_picture', 'phone_number', 'is_verified', 'created_at', 'updated_at']
         read_only_fields = ['created_at', 'updated_at']
 
+
+
+
+
 class SignupSerializer(serializers.ModelSerializer):
     password = serializers.CharField(write_only=True)
     user_type = serializers.ChoiceField(choices=User.USER_TYPE_CHOICES)
     company_name = serializers.CharField(max_length=255, required=False, allow_blank=True)
-    company_website = serializers.URLField(required=False, allow_blank=True, allow_null=True) 
+    company_website = serializers.URLField(required=False, allow_blank=True, allow_null=True)
     description = serializers.CharField(required=False, allow_blank=True)
     company_logo = serializers.ImageField(required=False, allow_null=True)
     industry = serializers.CharField(max_length=100, required=False, allow_blank=True)
     location = serializers.CharField(max_length=255, required=False, allow_blank=True)
+    phone_number = serializers.CharField(
+        validators=[RegexValidator(regex=r'^[4-9]\d{9}$', message='Phone number must be 10 digits and start with a digit between 4-9')])
+    email = serializers.EmailField()
 
     class Meta:
         model = User
@@ -29,13 +37,51 @@ class SignupSerializer(serializers.ModelSerializer):
             'company_name', 'company_website', 'description', 'company_logo', 'industry', 'location'
         ]
 
+    def validate_password(self, value):
+        errors = []
+        if len(value) < 6:
+            errors.append("Password must be at least 6 characters long.")
+        if not any(c.isupper() for c in value):
+            errors.append("Password must contain at least one uppercase letter.")
+        if not any(c.islower() for c in value):
+            errors.append("Password must contain at least one lowercase letter.")
+        if not any(c.isdigit() for c in value):
+            errors.append("Password must contain at least one number.")
+        if errors:
+            raise serializers.ValidationError(errors)
+        return value
+
     def validate(self, data):
         user_type = data.get('user_type')
+
         if user_type == 'job_provider':
             if not data.get('company_name'):
                 raise serializers.ValidationError({"company_name": "This field is required for Job Providers."})
+            if len(data.get('company_name', '')) < 4:
+                raise serializers.ValidationError({"company_name": "Company name must be at least 4 characters long."})
+            if not data.get('company_name', '').strip()[0].isalnum():
+                raise serializers.ValidationError({"company_name": "Company name must not start with a special character."})
+
             if not data.get('industry'):
                 raise serializers.ValidationError({"industry": "This field is required for Job Providers."})
+
+            if not data.get('location'):
+                raise serializers.ValidationError({"location": "This field is required for Job Providers."})
+            if not data.get('location', '').strip() or not all(
+                c.isalnum() or c in ' ,-.' for c in data.get('location', '')
+            ):
+                raise serializers.ValidationError({
+                    "location": "Location can only contain letters, numbers, spaces, commas, hyphens, and periods."
+                })
+
+            if data.get('company_logo'):
+                valid_extensions = ['jpg', 'jpeg', 'png', 'gif']
+                extension = data.get('company_logo').name.split('.')[-1].lower()
+                if extension not in valid_extensions:
+                    raise serializers.ValidationError({
+                        "company_logo": "Company logo must be in JPG, JPEG, PNG, or GIF format."
+                    })
+
         return data
 
     def create(self, validated_data):
@@ -68,7 +114,9 @@ class SignupSerializer(serializers.ModelSerializer):
                 industry=job_provider_data['industry'] or '',
                 location=job_provider_data['location']
             )
+
         return user
+
 class JobSeekerProfileSerializer(serializers.ModelSerializer):
     user = UserSerializer(read_only = True)
     class Meta:
